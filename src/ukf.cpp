@@ -1,8 +1,13 @@
 #include "ukf.h"
 #include "Eigen/Dense"
 
+#include <iostream>
+
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
+
+#define THRESHOLD 0.00001 // Excluding devision by zero
+
 
 /**
  * Initializes Unscented Kalman filter
@@ -62,14 +67,6 @@ UKF::UKF() {
   n_aug_ = 7;
 
 
-  // initial state vector
-  x_ = VectorXd(n_x_);
-
-  // initial covariance matrix
-  P_ = MatrixXd(n_x_, n_x_);
-
-
-
   H_lidar_ = MatrixXd(n_z_lidar_, n_x_);
   H_lidar_ << 1, 0, 0, 0, 0,
               0, 1, 0, 0, 0;
@@ -121,98 +118,69 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   // Initialization
   if (!is_initialized_)
   {
-      double px, py; 
-      double phi, rho, rho_dot;
+    double px, py; 
+    double phi, rho, rho_dot;
 
-      P_ = MatrixXd::Identity(n_x_, n_x_);
-      P_ << 10.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 2.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 10.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.2, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.2;
+    P_ = MatrixXd::Identity(n_x_, n_x_);
+    P_ << 1.0, 0.0, 0.0, 0.0, 0.0,
+          0.0, 1.0, 0.0, 0.0, 0.0,
+          0.0, 0.0, 1.0, 0.0, 0.0,
+          0.0, 0.0, 0.0, 0.1, 0.0,
+          0.0, 0.0, 0.0, 0.0, 0.1;
 
-      if (meas_package.sensor_type_ == MeasurementPackage::LASER)
-      {
-          px = meas_package.raw_measurements_(0);
-          py = meas_package.raw_measurements_(1);
+    if (meas_package.sensor_type_ == MeasurementPackage::LASER)
+    {
+        px = meas_package.raw_measurements_(0);
+        py = meas_package.raw_measurements_(1);
 
-          // [px, py, v, yaw, yaw_dot]
-          x_(0) = px;
-          x_(1) = py;
-          x_(2) = 0;
-          x_(3) = 0;
-          x_(4) = 0; 
-      }
-      else if (meas_package.sensor_type_ == MeasurementPackage::RADAR)
-      {
-          rho = meas_package.raw_measurements_(0);
-          phi = meas_package.raw_measurements_(1);
-          rho_dot = meas_package.raw_measurements_(2);
+        // [px, py, v, yaw, yaw_dot]
+        x_(0) = px;
+        x_(1) = py;
+        x_(2) = 0;
+        x_(3) = 0;
+        x_(4) = 0; 
+    }
+    else if (meas_package.sensor_type_ == MeasurementPackage::RADAR)
+    {
+        rho = meas_package.raw_measurements_(0);
+        phi = meas_package.raw_measurements_(1);
+        rho_dot = meas_package.raw_measurements_(2);
 
-          px = rho * cos(phi);
-          py = rho * sin(phi);
+        px = rho * cos(phi);
+        py = rho * sin(phi);
 
 
-          // [px, py, v, yaw, yaw_dot]
-          x_(0) = px;
-          x_(1) = py;
-          x_(2) = 0;
-          x_(3) = 0;
-          x_(4) = 0;
-      }
+        // [px, py, v, yaw, yaw_dot]
+        x_(0) = px;
+        x_(1) = py;
+        x_(2) = rho_dot * cos(rho);
+        x_(3) = 0;
+        x_(4) = 0;
+    }
 
-      time_us_ = meas_package.timestamp_;
-      is_initialized_ = true;
-      return;
+    time_us_ = meas_package.timestamp_;
+    is_initialized_ = true;
+    return;
   }
   
 
   double dt; // Time in seconds
-  dt = double(meas_package.timestamp_ - time_us_) / 1000000.f;
+  dt = double(meas_package.timestamp_ - time_us_) / 1000000.;
   time_us_ = meas_package.timestamp_;
-
-  // dt = 0.05 seconds
-  Prediction(dt);
   
+  Prediction(dt);
 
-  /*
-    *
-    * Update steps:
-    *
-    */
-
+  // Update steps:
   if (meas_package.sensor_type_ == MeasurementPackage::LASER && use_laser_ == true)
-  {
       UpdateLidar(meas_package);    
-  }
   else if (meas_package.sensor_type_ == MeasurementPackage::RADAR && use_radar_ == true)
-  {
       UpdateRadar(meas_package);
-  }
-}
-
-
-// Overloaded function
-// Runge-Kutta RK4 (partially still incomplete)
-VectorXd UKF::BicycleModel(VectorXd state, const double nu_a, const double nu_psidd)
-{
-  const double v = state(2);
-  const double yaw = state(3);
-  const double yaw_dot = state(4);
-
-  state(0) = v * cos(yaw);
-  state(1) = v * sin(yaw);
-  state(2) = 0;
-  state(3) = yaw_dot;
-  state(4) = 0;
-
-  return state;
 }
 
 
 // Overloaded function
 // Included the necessary calculations for direct integration (cf. comment in UKF::Prediction below)
-VectorXd UKF::BicycleModel(const VectorXd sigma_aug, const double delta_t)
+VectorXd UKF::CTRV(const VectorXd sigma_aug, const double delta_t)
 {
   VectorXd pred(n_x_); // return vector
 
@@ -224,22 +192,25 @@ VectorXd UKF::BicycleModel(const VectorXd sigma_aug, const double delta_t)
   const double nu_a = sigma_aug(5);
   const double nu_psidd = sigma_aug(6);
 
+
   // Don't forget to exclude division by zero!    
   if (fabs(yaw_dot) > THRESHOLD)
   {
-      pred(0) = px + v/yaw_dot * (sin(yaw+yaw_dot*delta_t)-sin(yaw)) + 0.5 * delta_t*delta_t * cos(yaw) * nu_a;
-      pred(1) = py + v/yaw_dot * (-cos(yaw+yaw_dot*delta_t)+cos(yaw)) + 0.5 * delta_t*delta_t * sin(yaw) * nu_a;
-      pred(2) = v + delta_t * nu_a;
-      pred(3) = yaw + yaw_dot * delta_t + 0.5 * delta_t*delta_t * nu_psidd;
-      pred(4) = yaw_dot + delta_t * nu_psidd;
+      //        const terms      linear terms                                              quadratic terms
+      pred(0) = px             + v/yaw_dot * (sin( yaw+yaw_dot*delta_t) - sin(yaw) )     + 0.5 * delta_t*delta_t * cos(yaw) * nu_a;
+      pred(1) = py             + v/yaw_dot * (-cos( yaw+yaw_dot*delta_t) + cos(yaw) )    + 0.5 * delta_t*delta_t * sin(yaw) * nu_a;
+      pred(2) = v              + delta_t * nu_a;
+      pred(3) = yaw            + yaw_dot * delta_t                                       + 0.5 * delta_t*delta_t * nu_psidd;
+      pred(4) = yaw_dot        + delta_t * nu_psidd;
   }
   else
   {
-      pred(0) = px + v * cos(yaw) * delta_t + 0.5 * delta_t*delta_t * cos(yaw) * nu_a;
-      pred(1) = py + v * sin(yaw) * delta_t + 0.5 * delta_t*delta_t * sin(yaw) * nu_a;
-      pred(2) = v + delta_t * nu_a;
-      pred(3) = yaw + 0.5 * delta_t*delta_t * nu_psidd;
-      pred(4) = delta_t * nu_psidd;
+      //        const terms      linear terms                quadratic terms
+      pred(0) = px             + v * cos(yaw) * delta_t    + 0.5 * delta_t*delta_t * cos(yaw) * nu_a;
+      pred(1) = py             + v * sin(yaw) * delta_t    + 0.5 * delta_t*delta_t * sin(yaw) * nu_a;
+      pred(2) = v              + delta_t * nu_a;
+      pred(3) = yaw                                        + 0.5 * delta_t*delta_t * nu_psidd;
+      pred(4) =                + delta_t * nu_psidd;
   }
 
   return pred;
@@ -261,78 +232,53 @@ void UKF::Prediction(double delta_t) {
 
   // Create augmented mean state
   x_aug.head(n_x_) = x_;
-  x_aug(n_x_) = 0.0f;
-  x_aug(n_x_+1) = 0.0f;
+  x_aug(n_x_) = std_a_;
+  x_aug(n_x_+1) = std_yawdd_;
 
   // Create augmented covariance matrix
   MatrixXd Q = MatrixXd(2, 2);
 
   Q << std_a_*std_a_, 0, 
-        0, std_yawdd_*std_yawdd_;
+       0, std_yawdd_*std_yawdd_;
 
   P_aug.topLeftCorner(n_x_, n_x_) = P_;     
   P_aug.bottomRightCorner(2, 2) = Q;    
 
+  //std::cout << x_aug << std::endl << std::endl;
 
   // Generate augmented sigma points
   Eigen::LLT<Eigen::MatrixXd> llt_of_P_aug(P_aug);
 
-  /*
-    *  Throws out a message if the Cholesky decomposition is not mathematically sound (i.e., wrong prerequisites).
-    */
+  // Throws out a message if the Cholesky decomposition is not mathematically sound (i.e., wrong prerequisites).
   if(llt_of_P_aug.info() == Eigen::NumericalIssue)
   {
-      cout << "Possibly non semi-positive definite matrix!" << endl;
+      std::cout << "Possibly non semi-positive definite matrix!" << std::endl;
   }  
 
   MatrixXd A_aug = llt_of_P_aug.matrixL();
 
 
   Xsig_aug.col(0) = x_aug;
-
-
-  for (int i=0; i < n_aug_; ++i) 
-  {
+  for (int i=0; i < n_aug_; ++i) {
       Xsig_aug.col(i+1) = x_aug + sqrt(lambda_+n_aug_) * A_aug.col(i);
       Xsig_aug.col(i+n_aug_+1) = x_aug - sqrt(lambda_+n_aug_) * A_aug.col(i);    
   }
 
-
-  x_.fill(0.0);
-
+  x_.fill(0);
   // Predict sigma points and calculate predicted mean: 
-  for (int i=0; i < 2*n_aug_+1; ++i)
-  {
-      /* 
-        *  Option to use Runge-Kutta (RK4) method:
-        *
-        *  Included as an alternative to 'direct integration' in order to circumvent potential 
-        *  bugs in the prediction step.
-        *
-        */
-
-      /*VectorXd k1(n_x_), k2(n_x_), k3(n_x_), k4(n_x_);
-      k1 = delta_t * BicycleModel(x_pred, nu_a, nu_psidd );
-      k2 = delta_t * BicycleModel(x_pred + 0.5*k1, nu_a, nu_psidd );
-      k3 = delta_t * BicycleModel(x_pred + 0.5*k2, nu_a, nu_psidd );
-      k4 = delta_t * BicycleModel(x_pred + k3, nu_a, nu_psidd );
-      Xsig_pred_.col(i) = x_pred + 1.0/6.0 * (k1 + 2*k2 + 2*k3 + k4);
-      */
-
-      Xsig_pred_.col(i) = BicycleModel(Xsig_aug.col(i), delta_t);
+  for (int i=0; i < 2*n_aug_+1; ++i) {
+      Xsig_pred_.col(i) = CTRV(Xsig_aug.col(i), delta_t);
 
       // Predicted mean:
       x_ += weights_m_(i) * Xsig_pred_.col(i);
   }
 
-
-  // Predicted covariance:
   P_.fill(0);
-  for (int i=0; i < 2*n_aug_+1; ++i)
-  {
+  // Predict covariance:
+  for (int i=0; i < 2*n_aug_+1; ++i) {
       VectorXd delta_x = Xsig_pred_.col(i) - x_;
       delta_x(3) = normalization(delta_x(3));
-      P_ += weights_c_(i) * delta_x * delta_x.transpose(); 
+      P_ += weights_c_(i) * (delta_x * delta_x.transpose()); 
   }
 }
 
@@ -345,7 +291,7 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
    */
 
   /*
-   *  We are allowed to use the linear Kalman equations here
+   *  Use the linear Kalman equations:
    */
   // Initialization the measurement matrix for the LIDAR
   VectorXd y = VectorXd(n_z_lidar_);
@@ -401,13 +347,10 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   VectorXd z = VectorXd(n_z_radar_);
   VectorXd z_pred = VectorXd::Zero(n_z_radar_);
 
-
   //calculate measurement covariance matrix S
   MatrixXd S = MatrixXd::Zero(n_z_radar_, n_z_radar_);
   MatrixXd Tc = MatrixXd::Zero(n_x_, n_z_radar_);
   MatrixXd K = MatrixXd(n_x_, n_z_radar_);
-
-
 
 
   // Measurement sigma point prediction
@@ -466,7 +409,6 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   for (int i=0; i<n_z_radar_; ++i)
       z(i) = meas_package.raw_measurements_(i);
 
-
   VectorXd delta_z = z-z_pred;
   delta_z(1) = normalization(delta_z(1));
 
@@ -474,6 +416,8 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   //x_ = x_ + K * (z-z_pred);
   x_ = x_ + K * delta_z;
   P_ = P_ - K * S * K.transpose();
+
+  std::cout << x_ << std::endl << std::endl;
 
   /**
    *  Normalized Innovation Squared (NIS)
