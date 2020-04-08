@@ -4,6 +4,16 @@
 #include "Eigen/Dense"
 #include "measurement_package.h"
 
+
+inline double normalization(double angle)
+{   
+    while (angle > M_PI) angle -= 2*M_PI;
+    while (angle < -M_PI) angle += 2*M_PI;
+    return angle;
+}
+
+
+
 class UKF {
  public:
   /**
@@ -15,6 +25,8 @@ class UKF {
    * Destructor
    */
   virtual ~UKF();
+
+  Eigen::VectorXd CTRV(const Eigen::VectorXd sigma_aug, const double delta_t);
 
   /**
    * ProcessMeasurement
@@ -95,6 +107,22 @@ class UKF {
 
   // Sigma point spreading parameter
   double lambda_;
+
+  // Custom members:
+  uint n_z_radar_;
+  uint n_z_lidar_;
+
+  Eigen::MatrixXd H_lidar_;
+  Eigen::MatrixXd R_lidar_;
+  Eigen::MatrixXd R_radar_;
+
+  // van-der-Merwe-coefficients:
+  double alpha_;
+  double beta_;
+  double kappa_;
+
+  Eigen::VectorXd weights_m_;
+  Eigen::VectorXd weights_c_;
 };
 
 #endif  // UKF_H
