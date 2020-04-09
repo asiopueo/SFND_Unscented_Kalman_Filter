@@ -26,10 +26,10 @@ UKF::UKF() {
   P_ = MatrixXd(5, 5);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 1;
+  std_a_ = 1.;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 1;
+  std_yawdd_ = 1.;
   
   /**
    * DO NOT MODIFY measurement noise values below.
@@ -122,6 +122,7 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     double phi, rho, rho_dot;
 
     P_ = MatrixXd::Identity(n_x_, n_x_);
+    // Uncomment for tweeking initial values of P_:
     /*P_ << 1.0, 0.0, 0.0, 0.0, 0.0,
           0.0, 1.0, 0.0, 0.0, 0.0,
           0.0, 0.0, 1.0, 0.0, 0.0,
@@ -244,7 +245,6 @@ void UKF::Prediction(double delta_t) {
   P_aug.topLeftCorner(n_x_, n_x_) = P_;     
   P_aug.bottomRightCorner(2, 2) = Q;    
 
-  //std::cout << x_aug << std::endl << std::endl;
 
   // Generate augmented sigma points
   Eigen::LLT<Eigen::MatrixXd> llt_of_P_aug(P_aug);
@@ -416,8 +416,6 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   //x_ = x_ + K * (z-z_pred);
   x_ = x_ + K * delta_z;
   P_ = P_ - K * S * K.transpose();
-
-  std::cout << x_ << std::endl << std::endl;
 
   /**
    *  Normalized Innovation Squared (NIS)

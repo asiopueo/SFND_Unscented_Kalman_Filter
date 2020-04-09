@@ -26,8 +26,8 @@ public:
 	bool visualize_radar = true;
 	bool visualize_pcd = false;
 	// Predict path in the future using UKF
-	double projectedTime = 0;
-	int projectedSteps = 0;
+	double projectedTime = 3;
+	int projectedSteps = 6;
 	// --------------------------------
 
 	Highway(pcl::visualization::PCLVisualizer::Ptr& viewer)
@@ -57,7 +57,7 @@ public:
 		}
 		traffic.push_back(car1);
 		
-		Car car2(Vect3(25, -4, 0), Vect3(4, 2, 2), Color(0, 0, 1), -6, 0, 2, "car2");
+		Car car2(Vect3(25, -4, 0), Vect3(4, 2, 2), Color(1, 1, 1), -6, 0, 2, "car2");
 		std::vector<accuation> car2_instructions;
 		a = accuation(4.0*1e6, 3.0, 0.0);
 		car2_instructions.push_back(a);
@@ -71,7 +71,7 @@ public:
 		}
 		traffic.push_back(car2);
 	
-		Car car3(Vect3(-12, 0, 0), Vect3(4, 2, 2), Color(0, 0, 1), 1, 0, 2, "car3");
+		Car car3(Vect3(-12, 0, 0), Vect3(4, 2, 2), Color(1, 0, 0), 1, 0, 2, "car3");
 		std::vector<accuation> car3_instructions;
 		a = accuation(0.5*1e6, 2.0, 1.0);
 		car3_instructions.push_back(a);
